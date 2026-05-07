@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Realtime VAD Monitor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero card">
+        <div class="hero-copy">
+          <p class="eyebrow">Live Microphone Monitor</p>
+          <h1>Realtime Voice Activity Detection</h1>
+          <p class="lede">
+            Record directly in the browser, stream audio to the Python VAD backend,
+            and watch the state machine move through quiet, starting, speaking, and
+            stopping in realtime.
+          </p>
+        </div>
+
+        <div class="hero-panel">
+          <div class="state-ring" data-state="QUIET">
+            <span class="ring-label">Current state</span>
+            <strong id="stateLabel">QUIET</strong>
+            <span id="stateHint">Microphone idle</span>
+            <span id="endpointBadge" class="endpoint-badge" aria-live="polite">Endpoint reached</span>
+          </div>
+
+          <div class="controls">
+            <button id="startButton" class="button primary">Start monitoring</button>
+            <button id="stopButton" class="button secondary" disabled>Stop</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card metrics-card">
+          <div class="section-head">
+            <p class="eyebrow">Signal</p>
+            <h2>Audio level</h2>
+          </div>
+
+          <div class="meter-wrap">
+            <div class="meter-track">
+              <div id="meterFill" class="meter-fill"></div>
+            </div>
+            <div class="meter-scale">
+              <span>quiet</span>
+              <span>loud</span>
+            </div>
+          </div>
+
+          <div class="stats-row">
+            <div>
+              <span class="stat-label">Chunk latency</span>
+              <strong id="latencyValue">0 ms</strong>
+            </div>
+            <div>
+              <span class="stat-label">Chunks sent</span>
+              <strong id="chunkCount">0</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="card timeline-card">
+          <div class="section-head">
+            <p class="eyebrow">State history</p>
+            <h2>Recent transitions</h2>
+          </div>
+          <div id="timeline" class="timeline"></div>
+        </article>
+      </section>
+
+      <section class="card legend-card">
+        <div class="section-head">
+          <p class="eyebrow">Guide</p>
+          <h2>How to read the states</h2>
+        </div>
+
+        <div class="legend-grid">
+          <div class="legend-item quiet">
+            <strong>QUIET</strong>
+            <p>No speech detected.</p>
+          </div>
+          <div class="legend-item starting">
+            <strong>STARTING</strong>
+            <p>Speech is emerging but not confirmed yet.</p>
+          </div>
+          <div class="legend-item speaking">
+            <strong>SPEAKING</strong>
+            <p>Speech is confidently active.</p>
+          </div>
+          <div class="legend-item stopping">
+            <strong>STOPPING</strong>
+            <p>Speech is fading and may return to quiet.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <template id="timelineItemTemplate">
+      <div class="timeline-item">
+        <span class="timeline-state"></span>
+        <span class="timeline-meta"></span>
+      </div>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

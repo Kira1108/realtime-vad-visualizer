@@ -1,0 +1,4 @@
+numpy
+pyloudnorm
+pydantic
+onnxruntime

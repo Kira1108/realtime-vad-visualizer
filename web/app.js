@@ -1,6 +1,7 @@
 const TARGET_SAMPLE_RATE = 16000;
 const TARGET_CHUNK_SIZE = 512;
 const MAX_TIMELINE_ITEMS = 12;
+const MAX_STATE_STRIP_ITEMS = 30;
 
 const startButton = document.querySelector("#startButton");
 const stopButton = document.querySelector("#stopButton");
@@ -9,6 +10,7 @@ const stateHint = document.querySelector("#stateHint");
 const stateRing = document.querySelector(".state-ring");
 const endpointBadge = document.querySelector("#endpointBadge");
 const meterFill = document.querySelector("#meterFill");
+const stateStrip = document.querySelector("#stateStrip");
 const latencyValue = document.querySelector("#latencyValue");
 const chunkCount = document.querySelector("#chunkCount");
 const backendName = document.querySelector("#backendName");
@@ -119,6 +121,21 @@ function updateState(state) {
   stateRing.dataset.state = state;
 }
 
+function appendStateStripItem(state) {
+  const node = document.createElement("span");
+  node.className = "state-strip-item";
+  node.dataset.state = state;
+  node.title = state;
+  node.setAttribute("aria-label", state);
+  stateStrip.append(node);
+
+  while (stateStrip.children.length > MAX_STATE_STRIP_ITEMS) {
+    stateStrip.removeChild(stateStrip.firstElementChild);
+  }
+
+  stateStrip.scrollTo({ left: stateStrip.scrollWidth, behavior: "smooth" });
+}
+
 function triggerEndpointFlash() {
   window.clearTimeout(endpointFlashTimer);
   stateRing.classList.remove("endpoint-flash");
@@ -225,6 +242,7 @@ async function sendChunk(floatSamples) {
   }
 
   updateState(result.state);
+  appendStateStripItem(result.state);
 
   if (result.state !== lastState) {
     appendTimeline(result.state, latencyMs);
@@ -364,6 +382,8 @@ async function startMonitoring() {
   chunkCount.textContent = "0";
   updateState("QUIET");
   timeline.innerHTML = "";
+  stateStrip.innerHTML = "";
+  appendStateStripItem("QUIET");
   appendTimeline("QUIET", 0);
   lastState = "QUIET";
 

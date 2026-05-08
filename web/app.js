@@ -11,8 +11,32 @@ const endpointBadge = document.querySelector("#endpointBadge");
 const meterFill = document.querySelector("#meterFill");
 const latencyValue = document.querySelector("#latencyValue");
 const chunkCount = document.querySelector("#chunkCount");
+const backendName = document.querySelector("#backendName");
+const applyStatus = document.querySelector("#applyStatus");
+const endpointPreset = document.querySelector("#endpointPreset");
+const resetParamsButton = document.querySelector("#resetParamsButton");
 const timeline = document.querySelector("#timeline");
 const timelineItemTemplate = document.querySelector("#timelineItemTemplate");
+
+const paramInputs = {
+  confidence: document.querySelector("#confidenceInput"),
+  min_volume: document.querySelector("#minVolumeInput"),
+  start_secs: document.querySelector("#startSecsInput"),
+  stop_secs: document.querySelector("#stopSecsInput"),
+};
+
+const paramValueLabels = {
+  confidence: document.querySelector("#confidenceValue"),
+  min_volume: document.querySelector("#minVolumeValue"),
+  start_secs: document.querySelector("#startSecsValue"),
+  stop_secs: document.querySelector("#stopSecsValue"),
+};
+
+const endpointPresets = {
+  responsive: { start_secs: 0.12, stop_secs: 0.18 },
+  balanced: { start_secs: 0.2, stop_secs: 0.25 },
+  stable: { start_secs: 0.32, stop_secs: 0.45 },
+};
 
 const stateDescriptions = {
   QUIET: "No voice detected",
@@ -32,6 +56,56 @@ let sentChunks = 0;
 let lastState = "QUIET";
 let starting = false;
 let endpointFlashTimer;
+let applyTimer;
+let currentParams;
+let defaultParams;
+let applyRequestToken = 0;
+
+function setApplyStatus(message, tone = "neutral") {
+  applyStatus.textContent = message;
+  applyStatus.dataset.tone = tone;
+}
+
+function formatParamValue(name, value) {
+  if (name === "start_secs" || name === "stop_secs") {
+    return `${Math.round(value * 1000)} ms`;
+  }
+  return value.toFixed(2);
+}
+
+function syncParamLabels(params) {
+  for (const [name, input] of Object.entries(paramInputs)) {
+    input.value = String(params[name]);
+    paramValueLabels[name].textContent = formatParamValue(name, params[name]);
+  }
+}
+
+function inferPreset(params) {
+  for (const [name, preset] of Object.entries(endpointPresets)) {
+    if (
+      Math.abs(params.start_secs - preset.start_secs) < 0.005 &&
+      Math.abs(params.stop_secs - preset.stop_secs) < 0.005
+    ) {
+      return name;
+    }
+  }
+  return "custom";
+}
+
+function readParamsFromControls() {
+  return {
+    confidence: Number(paramInputs.confidence.value),
+    min_volume: Number(paramInputs.min_volume.value),
+    start_secs: Number(paramInputs.start_secs.value),
+    stop_secs: Number(paramInputs.stop_secs.value),
+  };
+}
+
+function writeParamsToControls(params) {
+  currentParams = { ...params };
+  syncParamLabels(currentParams);
+  endpointPreset.value = inferPreset(currentParams);
+}
 
 function setControls({ startDisabled, stopDisabled, startLabel }) {
   startButton.disabled = startDisabled;
@@ -165,12 +239,74 @@ async function resetBackend() {
   }
 }
 
+async function fetchParams() {
+  const response = await fetch("/params");
+  if (!response.ok) {
+    throw new Error(`Params unavailable (${response.status})`);
+  }
+  return response.json();
+}
+
+async function pushParams(params) {
+  const response = await fetch("/params", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(params),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Update failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
 async function checkBackend() {
   const response = await fetch("/health");
   if (!response.ok) {
     throw new Error(`Backend unavailable (${response.status})`);
   }
   return response.json();
+}
+
+async function applyParams(params, statusMessage = "Updated") {
+  const requestToken = ++applyRequestToken;
+  setApplyStatus("Applying...", "pending");
+
+  const result = await pushParams(params);
+  if (requestToken !== applyRequestToken) {
+    return;
+  }
+
+  backendName.textContent = result.backend;
+  writeParamsToControls(result.params);
+  setApplyStatus(statusMessage, "success");
+}
+
+function scheduleParamApply(statusMessage = "Updated") {
+  window.clearTimeout(applyTimer);
+  setApplyStatus("Pending change...", "pending");
+
+  applyTimer = window.setTimeout(async () => {
+    try {
+      await applyParams(readParamsFromControls(), statusMessage);
+    } catch (error) {
+      console.error(error);
+      setApplyStatus(error instanceof Error ? error.message : "Unable to update", "error");
+    }
+  }, 180);
+}
+
+async function loadConfig() {
+  const [health, paramsPayload] = await Promise.all([checkBackend(), fetchParams()]);
+  backendName.textContent = health.backend;
+  defaultParams = { ...paramsPayload.defaults };
+  writeParamsToControls(paramsPayload.params);
+  setApplyStatus("Ready", "success");
+  stateHint.textContent = `Ready · backend ${health.backend}`;
 }
 
 async function flushPendingSamples() {
@@ -310,14 +446,52 @@ stopButton.addEventListener("click", async () => {
   await stopMonitoring();
 });
 
+endpointPreset.addEventListener("change", () => {
+  if (endpointPreset.value === "custom") {
+    return;
+  }
+
+  const preset = endpointPresets[endpointPreset.value];
+  paramInputs.start_secs.value = String(preset.start_secs);
+  paramInputs.stop_secs.value = String(preset.stop_secs);
+  paramValueLabels.start_secs.textContent = formatParamValue("start_secs", preset.start_secs);
+  paramValueLabels.stop_secs.textContent = formatParamValue("stop_secs", preset.stop_secs);
+  scheduleParamApply(`Preset ${endpointPreset.value} applied`);
+});
+
+for (const [name, input] of Object.entries(paramInputs)) {
+  input.addEventListener("input", () => {
+    const value = Number(input.value);
+    paramValueLabels[name].textContent = formatParamValue(name, value);
+    if (name === "start_secs" || name === "stop_secs") {
+      endpointPreset.value = inferPreset(readParamsFromControls());
+    }
+    scheduleParamApply("Parameters updated");
+  });
+}
+
+resetParamsButton.addEventListener("click", async () => {
+  if (!defaultParams) {
+    return;
+  }
+
+  try {
+    await applyParams(defaultParams, "Defaults restored");
+  } catch (error) {
+    console.error(error);
+    setApplyStatus(error instanceof Error ? error.message : "Unable to reset", "error");
+  }
+});
+
 updateState("QUIET");
 setControls({ startDisabled: false, stopDisabled: true, startLabel: "Start monitoring" });
+setApplyStatus("Loading...", "pending");
 
-void checkBackend().then(
-  (health) => {
-    stateHint.textContent = `Ready · backend ${health.backend}`;
-  },
+void loadConfig().then(
+  () => {},
   (error) => {
+    backendName.textContent = "offline";
+    setApplyStatus("Backend unavailable", "error");
     stateHint.textContent = error instanceof Error ? error.message : "Backend unavailable";
     setControls({ startDisabled: false, stopDisabled: true, startLabel: "Retry backend" });
   },

@@ -34,24 +34,14 @@
         </div>
       </section>
 
-      <section class="grid">
-        <article class="card metrics-card">
-          <div class="section-head">
+      <section class="card metrics-strip">
+        <div class="metrics-strip-head">
+          <div>
             <p class="eyebrow">Signal</p>
             <h2>Audio level</h2>
           </div>
 
-          <div class="meter-wrap">
-            <div class="meter-track">
-              <div id="meterFill" class="meter-fill"></div>
-            </div>
-            <div class="meter-scale">
-              <span>quiet</span>
-              <span>loud</span>
-            </div>
-          </div>
-
-          <div class="stats-row">
+          <div class="stats-row compact-stats">
             <div>
               <span class="stat-label">Chunk latency</span>
               <strong id="latencyValue">0 ms</strong>
@@ -60,6 +50,85 @@
               <span class="stat-label">Chunks sent</span>
               <strong id="chunkCount">0</strong>
             </div>
+          </div>
+        </div>
+
+        <div class="meter-wrap thin-meter-wrap">
+          <div class="meter-track thin-meter-track">
+            <div id="meterFill" class="meter-fill"></div>
+          </div>
+          <div class="meter-scale">
+            <span>quiet</span>
+            <span>loud</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid detail-grid">
+
+        <article class="card tuning-card">
+          <div class="section-head">
+            <p class="eyebrow">Tuning</p>
+            <h2>Sensitivity and endpointing</h2>
+          </div>
+
+          <div class="config-summary">
+            <div>
+              <span class="stat-label">Backend</span>
+              <strong id="backendName">unknown</strong>
+            </div>
+            <div>
+              <span class="stat-label">Apply status</span>
+              <strong id="applyStatus">Loading…</strong>
+            </div>
+          </div>
+
+          <label class="config-control">
+            <span class="config-label-row">
+              <span>Endpoint strategy</span>
+            </span>
+            <select id="endpointPreset" class="config-select">
+              <option value="responsive">Responsive</option>
+              <option value="balanced">Balanced</option>
+              <option value="stable">Stable</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+
+          <label class="config-control">
+            <span class="config-label-row">
+              <span>Confidence threshold</span>
+              <strong id="confidenceValue">0.70</strong>
+            </span>
+            <input id="confidenceInput" type="range" min="0.1" max="0.95" step="0.01" />
+          </label>
+
+          <label class="config-control">
+            <span class="config-label-row">
+              <span>Minimum volume</span>
+              <strong id="minVolumeValue">0.60</strong>
+            </span>
+            <input id="minVolumeInput" type="range" min="0" max="1" step="0.01" />
+          </label>
+
+          <label class="config-control">
+            <span class="config-label-row">
+              <span>Speech start hold</span>
+              <strong id="startSecsValue">200 ms</strong>
+            </span>
+            <input id="startSecsInput" type="range" min="0.05" max="0.8" step="0.01" />
+          </label>
+
+          <label class="config-control">
+            <span class="config-label-row">
+              <span>Speech stop hold</span>
+              <strong id="stopSecsValue">250 ms</strong>
+            </span>
+            <input id="stopSecsInput" type="range" min="0.05" max="1.2" step="0.01" />
+          </label>
+
+          <div class="tuning-actions">
+            <button id="resetParamsButton" class="button secondary" type="button">Reset defaults</button>
           </div>
         </article>
 

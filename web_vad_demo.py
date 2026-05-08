@@ -10,6 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
 
+from vad_analyzer import VADParams
+
 LOGGER = logging.getLogger("vad.web_demo")
 
 
@@ -21,6 +23,55 @@ STATIC_DIR = Path(__file__).parent / "web"
 
 analyzer_lock = Lock()
 analyzer = None
+
+
+def serialize_params(params) -> dict[str, float]:
+    return {
+        "confidence": round(float(params.confidence), 4),
+        "start_secs": round(float(params.start_secs), 4),
+        "stop_secs": round(float(params.stop_secs), 4),
+        "min_volume": round(float(params.min_volume), 4),
+    }
+
+
+def get_default_params() -> dict[str, float]:
+    return serialize_params(VADParams())
+
+
+def get_analyzer_params() -> dict[str, float]:
+    if analyzer is None:
+        return get_default_params()
+    return serialize_params(getattr(analyzer, "params", VADParams()))
+
+
+def update_analyzer_params(payload: dict) -> dict[str, float]:
+    global analyzer
+
+    defaults = VADParams()
+    merged = {
+        "confidence": payload.get("confidence", defaults.confidence),
+        "start_secs": payload.get("start_secs", defaults.start_secs),
+        "stop_secs": payload.get("stop_secs", defaults.stop_secs),
+        "min_volume": payload.get("min_volume", defaults.min_volume),
+    }
+
+    params = VADParams(**merged)
+
+    if params.confidence < 0 or params.confidence > 1:
+        raise ValueError("confidence must be between 0.0 and 1.0")
+    if params.min_volume < 0 or params.min_volume > 1:
+        raise ValueError("min_volume must be between 0.0 and 1.0")
+    if params.start_secs <= 0:
+        raise ValueError("start_secs must be greater than 0")
+    if params.stop_secs <= 0:
+        raise ValueError("stop_secs must be greater than 0")
+
+    with analyzer_lock:
+        if analyzer is None:
+            analyzer = create_analyzer(params=params)
+        analyzer.set_params(params)
+
+    return serialize_params(params)
 
 
 def get_backend_name() -> str:
@@ -48,9 +99,16 @@ class EnergyVAD:
     def __init__(self, sample_rate: int, params: FallbackVADParams | None = None):
         self.backend_name = "energy"
         self.sample_rate = sample_rate
-        self.params = params or FallbackVADParams()
         self.chunk_samples = 512 if sample_rate == 16000 else 256
         self._frame_seconds = self.chunk_samples / sample_rate
+        self.set_params(params or FallbackVADParams())
+
+    def set_params(self, params: VADParams | FallbackVADParams):
+        if isinstance(params, VADParams):
+            self.params = FallbackVADParams(**params.model_dump())
+        else:
+            self.params = params
+
         self._start_frames = max(1, round(self.params.start_secs / self._frame_seconds))
         self._stop_frames = max(1, round(self.params.stop_secs / self._frame_seconds))
         self._state = FallbackVADState.QUIET
@@ -120,28 +178,37 @@ class EnergyVAD:
         return min(1.0, rms * 3.2)
 
 
-def create_analyzer():
+def create_analyzer(params: VADParams | None = None):
     try:
         from silero_vad import SileroVADAnalyzer
     except Exception as exc:
         LOGGER.warning("Silero VAD unavailable, falling back to EnergyVAD: %s", exc)
         LOGGER.info("Using EnergyVAD fallback backend")
-        return EnergyVAD(sample_rate=SAMPLE_RATE)
+        return EnergyVAD(
+            sample_rate=SAMPLE_RATE,
+            params=FallbackVADParams(**(params or VADParams()).model_dump()),
+        )
 
     if SileroVADAnalyzer is not None:
-        vad = SileroVADAnalyzer(sample_rate=SAMPLE_RATE)
+        vad = SileroVADAnalyzer(sample_rate=SAMPLE_RATE, params=params)
         vad.set_sample_rate(SAMPLE_RATE)
         vad.backend_name = "silero"
         LOGGER.info("Using SileroVADAnalyzer backend")
         return vad
     LOGGER.info("Using EnergyVAD fallback backend")
-    return EnergyVAD(sample_rate=SAMPLE_RATE)
+    return EnergyVAD(
+        sample_rate=SAMPLE_RATE,
+        params=FallbackVADParams(**(params or VADParams()).model_dump()),
+    )
 
 
 def reset_analyzer():
     global analyzer
     with analyzer_lock:
-        analyzer = create_analyzer()
+        current_params = None
+        if analyzer is not None and hasattr(analyzer, "params"):
+            current_params = VADParams(**serialize_params(analyzer.params))
+        analyzer = create_analyzer(params=current_params)
 
 
 def cleanup_analyzer():
@@ -178,6 +245,18 @@ class VADDemoHandler(BaseHTTPRequestHandler):
                     "status": "ok",
                     "sample_rate": SAMPLE_RATE,
                     "backend": get_backend_name(),
+                    "params": get_analyzer_params(),
+                },
+            )
+            return
+
+        if self.path == "/params":
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "backend": get_backend_name(),
+                    "params": get_analyzer_params(),
+                    "defaults": get_default_params(),
                 },
             )
             return
@@ -188,6 +267,30 @@ class VADDemoHandler(BaseHTTPRequestHandler):
         if self.path == "/reset":
             reset_analyzer()
             self._send_json(HTTPStatus.OK, {"status": "reset"})
+            return
+
+        if self.path == "/params":
+            content_length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+                params = update_analyzer_params(payload)
+            except json.JSONDecodeError:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON payload"})
+                return
+            except ValueError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "status": "updated",
+                    "backend": get_backend_name(),
+                    "params": params,
+                },
+            )
             return
 
         if self.path != "/analyze":
